@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+qdrant-client
+Pillow
+python-multipart
+python-dotenv
+openai
+requests
+scikit-learn
+numpy
+

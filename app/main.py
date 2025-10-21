@@ -3,9 +3,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app.scanner import scan_directory, load_index, search_files
-from app.indexer import initialize_qdrant, index_file_record, search_qdrant
-from app.face_cluster import get_face_clusters_summary, get_images_for_cluster
+from .scanner import scan_directory, load_index, search_files
+from .indexer import initialize_qdrant, index_file_record, search_qdrant
+from .face_cluster import get_face_clusters_summary, get_images_for_cluster
 from dotenv import load_dotenv
 import json
 

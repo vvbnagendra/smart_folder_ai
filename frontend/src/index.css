@@ -31,7 +31,7 @@
   @apply bg-gray-400;
 }
 
-/* Loading animation for search */
+/* Loading animation */
 .loading-dots::after {
   content: '';
   animation: loading-dots 1.5s infinite;
@@ -49,7 +49,7 @@
   }
 }
 
-/* Smooth hover effects */
+/* Hover effects */
 .hover-lift {
   @apply transition-all duration-200;
 }
@@ -63,25 +63,7 @@
   @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
 }
 
-/* Image loading placeholder */
-.image-placeholder {
-  @apply bg-gradient-to-br from-gray-200 to-gray-300 animate-pulse;
-}
-
-/* Status indicators */
-.status-online {
-  @apply bg-green-500;
-}
-
-.status-offline {
-  @apply bg-red-500;
-}
-
-.status-warning {
-  @apply bg-yellow-500;
-}
-
-/* File type colors */
+/* File type indicators */
 .file-image {
   @apply border-l-4 border-purple-400;
 }

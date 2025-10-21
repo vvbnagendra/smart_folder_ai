@@ -270,20 +270,3 @@ The extracted text has been processed and indexed for search capabilities. Use t
 Image file: {filename}
 Processing date: March 15, 2024
 OCR confidence: 95%"""
-
-if __name__ == "__main__":
-    print("Enhanced OCR Engine Initialized.")
-    
-    # Test with different file types
-    test_files = [
-        ("invoice_march.png", "Invoice"),
-        ("meeting_notes.jpg", "Notes"),
-        ("system_screenshot.png", "Screenshot"),
-        ("quarterly_report.pdf", "Report")
-    ]
-    
-    for filename, file_type in test_files:
-        print(f"\n--- OCR Test: {file_type} ---")
-        result = ocr_file(f"/tmp/{filename}")
-        print(f"Extracted text length: {len(result)} characters")
-        print(f"Preview: {result[:200]}...")

@@ -1,8 +1,10 @@
 import os
+import platform
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import List, Optional
 from .scanner import scan_directory, load_index, search_files
 from .indexer import initialize_qdrant, index_file_record, search_qdrant
 from .face_cluster import get_face_clusters_summary, get_images_for_cluster
@@ -15,15 +17,34 @@ load_dotenv(dotenv_path="sample.env")
 app = FastAPI(title="Smart Folder Organizer API")
 
 # --- Configuration ---
-SCAN_PATHS = os.getenv("SCAN_PATHS", "/data").split(":")
+# Default scan paths based on OS
+def get_default_scan_paths():
+    if platform.system() == "Windows":
+        return [
+            os.path.expanduser("~/Documents"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Pictures")
+        ]
+    elif platform.system() == "Darwin":  # macOS
+        return [
+            os.path.expanduser("~/Documents"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Pictures")
+        ]
+    else:  # Linux/Unix
+        return ["/data"]
 
 # Global state
 current_index = []
+current_scan_paths = get_default_scan_paths()
 
 # --- Request Models ---
 class SearchRequest(BaseModel):
     query: str
     search_type: str = "keyword"  # keyword or semantic
+
+class ScanRequest(BaseModel):
+    paths: List[str]
 
 class FaceClusterRequest(BaseModel):
     cluster_id: int
@@ -41,18 +62,128 @@ def get_scan_status():
     except Exception:
         return {"total_files": 0, "indexed_files": 0, "file_types": {}}
 
+def validate_paths(paths: List[str]) -> List[str]:
+    """Validate and filter valid directory paths."""
+    valid_paths = []
+    for path in paths:
+        if os.path.isdir(path) and os.access(path, os.R_OK):
+            valid_paths.append(os.path.abspath(path))
+    return valid_paths
+
 # --- API Endpoints ---
 
+@app.get("/api/default-paths")
+def get_default_paths():
+    """Get suggested default scan paths based on the operating system."""
+    paths = get_default_scan_paths()
+    # Check which paths actually exist and are accessible
+    available_paths = []
+    for path in paths:
+        if os.path.exists(path) and os.access(path, os.R_OK):
+            available_paths.append({
+                "path": path,
+                "exists": True,
+                "readable": True,
+                "size_estimate": get_directory_size_estimate(path)
+            })
+        else:
+            available_paths.append({
+                "path": path,
+                "exists": os.path.exists(path),
+                "readable": False,
+                "size_estimate": 0
+            })
+    
+    return {
+        "default_paths": available_paths,
+        "os": platform.system(),
+        "common_folders": get_common_folders()
+    }
+
+def get_common_folders():
+    """Get common folders that users might want to scan."""
+    common = []
+    if platform.system() == "Windows":
+        # Windows common folders
+        possible_paths = [
+            os.path.expanduser("~/Desktop"),
+            os.path.expanduser("~/Documents"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Pictures"),
+            os.path.expanduser("~/Videos"),
+            os.path.expanduser("~/Music"),
+            "C:/Users/Public/Documents",
+            "C:/Users/Public/Pictures"
+        ]
+    elif platform.system() == "Darwin":  # macOS
+        possible_paths = [
+            os.path.expanduser("~/Desktop"),
+            os.path.expanduser("~/Documents"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Pictures"),
+            os.path.expanduser("~/Movies"),
+            os.path.expanduser("~/Music")
+        ]
+    else:  # Linux
+        possible_paths = [
+            os.path.expanduser("~/Desktop"),
+            os.path.expanduser("~/Documents"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Pictures"),
+            os.path.expanduser("~/Videos"),
+            os.path.expanduser("~/Music"),
+            "/home",
+            "/mnt",
+            "/media"
+        ]
+    
+    for path in possible_paths:
+        if os.path.exists(path) and os.access(path, os.R_OK):
+            common.append(path)
+    
+    return common
+
+def get_directory_size_estimate(path: str) -> int:
+    """Get a rough estimate of directory size (first 1000 files)."""
+    try:
+        total_size = 0
+        file_count = 0
+        for root, dirs, files in os.walk(path):
+            for file in files:
+                if file_count >= 1000:  # Limit for performance
+                    break
+                try:
+                    file_path = os.path.join(root, file)
+                    total_size += os.path.getsize(file_path)
+                    file_count += 1
+                except (OSError, IOError):
+                    continue
+            if file_count >= 1000:
+                break
+        return total_size
+    except:
+        return 0
+
 @app.post("/api/scan")
-def scan_folders():
+def scan_folders(request: Optional[ScanRequest] = None):
     """Starts the recursive folder scan and indexing process."""
-    global current_index
+    global current_index, current_scan_paths
+    
+    # Use provided paths or current scan paths
+    if request and request.paths:
+        scan_paths = validate_paths(request.paths)
+        current_scan_paths = scan_paths
+    else:
+        scan_paths = validate_paths(current_scan_paths)
+    
+    if not scan_paths:
+        raise HTTPException(status_code=400, detail="No valid scan paths provided or found")
     
     try:
-        print(f"Starting scan of paths: {SCAN_PATHS}")
+        print(f"Starting scan of paths: {scan_paths}")
         
         # Perform the scan
-        file_records = scan_directory(SCAN_PATHS)
+        file_records = scan_directory(scan_paths)
         current_index = file_records
         
         # Save the index
@@ -80,7 +211,7 @@ def scan_folders():
             "indexed_files": len([r for r in file_records if r.get("indexed", False)]),
             "vector_indexed": indexed_count,
             "file_types": stats.get("file_types", {}),
-            "scan_paths": SCAN_PATHS
+            "scan_paths": scan_paths
         }
         
     except Exception as e:
@@ -147,67 +278,6 @@ def get_face_cluster_images(cluster_id: int):
         print(f"Error getting cluster images: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get cluster images: {str(e)}")
 
-@app.get("/api/organize")
-def get_organize_suggestions():
-    """Provides suggestions for file cleanup and renaming."""
-    global current_index
-    
-    try:
-        if not current_index:
-            current_index = load_index()
-        
-        suggestions = []
-        
-        # Find potential duplicates based on hash
-        hash_groups = {}
-        for record in current_index:
-            file_hash = record.get("hash")
-            if file_hash and file_hash != "":
-                if file_hash not in hash_groups:
-                    hash_groups[file_hash] = []
-                hash_groups[file_hash].append(record)
-        
-        # Generate duplicate suggestions
-        for file_hash, files in hash_groups.items():
-            if len(files) > 1:
-                # Keep the file with the shortest path, suggest others for removal
-                files.sort(key=lambda x: len(x.get("path", "")))
-                original = files[0]
-                for duplicate in files[1:]:
-                    suggestions.append({
-                        "type": "duplicate",
-                        "file": duplicate.get("filename", ""),
-                        "suggestion": f"Duplicate of '{original.get('filename', '')}'. Consider removing.",
-                        "original_path": original.get("path", ""),
-                        "duplicate_path": duplicate.get("path", "")
-                    })
-        
-        # Generate naming suggestions
-        for record in current_index[:20]:  # Limit to first 20 for demo
-            filename = record.get("filename", "")
-            if any(pattern in filename.lower() for pattern in ["copy", "untitled", "img_", "dsc_"]):
-                # Extract content-based name suggestion
-                text_content = record.get("text_content", "")
-                if text_content:
-                    # Simple title extraction
-                    lines = text_content.split('\n')
-                    first_line = lines[0].strip() if lines else ""
-                    if first_line and len(first_line) < 50:
-                        suggested_name = first_line.replace(" ", "_")[:30] + os.path.splitext(filename)[1]
-                        suggestions.append({
-                            "type": "rename",
-                            "file": filename,
-                            "suggestion": f"Rename to '{suggested_name}' based on content",
-                            "current_path": record.get("path", ""),
-                            "suggested_name": suggested_name
-                        })
-        
-        return {"suggestions": suggestions[:20]}  # Limit to 20 suggestions
-        
-    except Exception as e:
-        print(f"Error generating suggestions: {e}")
-        return {"suggestions": []}
-
 @app.get("/api/status")
 def get_status():
     """Returns the current status of the system."""
@@ -216,12 +286,13 @@ def get_status():
         
         status_info = {
             "status": "online", 
-            "scan_paths": SCAN_PATHS,
+            "scan_paths": current_scan_paths,
             "total_files": stats.get("total_files", 0),
             "indexed_files": stats.get("indexed_files", 0),
             "file_types": stats.get("file_types", {}),
             "index_exists": os.path.exists("smartfolder_index.json"),
-            "face_clusters": len(get_face_clusters_summary())
+            "face_clusters": len(get_face_clusters_summary()),
+            "os": platform.system()
         }
         
         return status_info
@@ -230,7 +301,7 @@ def get_status():
         print(f"Error getting status: {e}")
         return {
             "status": "error", 
-            "scan_paths": SCAN_PATHS,
+            "scan_paths": current_scan_paths,
             "error": str(e)
         }
 
@@ -274,32 +345,6 @@ def get_detailed_stats():
         print(f"Error getting detailed stats: {e}")
         return {"error": str(e)}
 
-@app.get("/api/file-thumbnail/{file_path:path}")
-def get_file_thumbnail(file_path: str):
-    """Generate and return a thumbnail for an image file."""
-    try:
-        # Security check - ensure file is within scan paths
-        abs_file_path = os.path.abspath(file_path)
-        allowed = False
-        for scan_path in SCAN_PATHS:
-            if abs_file_path.startswith(os.path.abspath(scan_path)):
-                allowed = True
-                break
-        
-        if not allowed:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        if not os.path.exists(abs_file_path):
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        # For now, return the original file
-        # In production, generate actual thumbnails
-        return FileResponse(abs_file_path)
-        
-    except Exception as e:
-        print(f"Error getting thumbnail: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 # --- Initialize on startup ---
 @app.on_event("startup")
 async def startup_event():
@@ -307,6 +352,8 @@ async def startup_event():
     global current_index
     
     print("Smart Folder Organizer starting up...")
+    print(f"Operating System: {platform.system()}")
+    print(f"Default scan paths: {current_scan_paths}")
     
     # Load existing index if available
     try:

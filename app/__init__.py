@@ -1,6 +1,6 @@
 # Smart Folder Organizer Application
-# Enhanced version with improved search and face recognition features
+# Enhanced version with UI-based folder selection and Windows compatibility
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "Smart Folder Organizer Team"
-__description__ = "AI-powered file management and search assistant"
+__description__ = "AI-powered file management and search assistant with UI-based folder selection"

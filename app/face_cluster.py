@@ -152,22 +152,3 @@ def clear_face_database():
     global FACE_DATABASE, NEXT_CLUSTER_ID
     FACE_DATABASE = []
     NEXT_CLUSTER_ID = 1
-
-if __name__ == "__main__":
-    print("Enhanced Face Cluster Engine Initialized.")
-    
-    # Test with mock data
-    clear_face_database()
-    
-    # Simulate scanning some images
-    test_images = ["/tmp/test1.jpg", "/tmp/test2.jpg"]
-    for img_path in test_images:
-        print(f"\n--- Processing {img_path}")
-        faces_data = detect_and_encode_faces(img_path)
-        if faces_data:
-            cluster_ids = cluster_faces(faces_data)
-            print(f"Detected {len(faces_data)} faces. Assigned to clusters: {cluster_ids}")
-        else:
-            print("No faces detected")
-    
-    print(f"\nFinal Summary: {get_face_clusters_summary()}")

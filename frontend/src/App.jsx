@@ -10,12 +10,34 @@ function App() {
   const [systemStats, setSystemStats] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
   const [clusterImages, setClusterImages] = useState([]);
+  
+  // New state for folder selection
+  const [defaultPaths, setDefaultPaths] = useState([]);
+  const [selectedPaths, setSelectedPaths] = useState([]);
+  const [customPath, setCustomPath] = useState('');
+  const [showPathSelector, setShowPathSelector] = useState(false);
 
   // Fetch initial data on mount
   useEffect(() => {
     fetchSystemStatus();
     fetchFaceClusters();
+    fetchDefaultPaths();
   }, []);
+
+  const fetchDefaultPaths = async () => {
+    try {
+      const response = await fetch('/api/default-paths');
+      const data = await response.json();
+      setDefaultPaths(data);
+      // Set initial selected paths from available defaults
+      const availablePaths = data.default_paths
+        .filter(p => p.exists && p.readable)
+        .map(p => p.path);
+      setSelectedPaths(availablePaths.slice(0, 2)); // Select first 2 by default
+    } catch (error) {
+      console.error('Error fetching default paths:', error);
+    }
+  };
 
   const fetchSystemStatus = async () => {
     try {
@@ -49,10 +71,19 @@ function App() {
   };
 
   const handleScan = async () => {
+    if (selectedPaths.length === 0) {
+      alert('Please select at least one folder to scan.');
+      return;
+    }
+
     setLoading(true);
     setScanStatus(null);
     try {
-      const response = await fetch('/api/scan', { method: 'POST' });
+      const response = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: selectedPaths })
+      });
       const data = await response.json();
       setScanStatus(data);
       // Refresh data after scan
@@ -88,6 +119,25 @@ function App() {
     }
   };
 
+  const addCustomPath = () => {
+    if (customPath.trim() && !selectedPaths.includes(customPath.trim())) {
+      setSelectedPaths([...selectedPaths, customPath.trim()]);
+      setCustomPath('');
+    }
+  };
+
+  const removePath = (pathToRemove) => {
+    setSelectedPaths(selectedPaths.filter(path => path !== pathToRemove));
+  };
+
+  const togglePath = (path) => {
+    if (selectedPaths.includes(path)) {
+      removePath(path);
+    } else {
+      setSelectedPaths([...selectedPaths, path]);
+    }
+  };
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -108,6 +158,15 @@ function App() {
     return icons[fileType] || icons.unknown;
   };
 
+  const getOSIcon = (os) => {
+    const icons = {
+      'Windows': '🪟',
+      'Darwin': '🍎',
+      'Linux': '🐧'
+    };
+    return icons[os] || '💻';
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -117,39 +176,171 @@ function App() {
           <p className="text-blue-100 mt-2">AI-powered file management and search</p>
           
           {/* System Status */}
-          {systemStats && (
-            <div className="mt-4 flex flex-wrap gap-4 text-sm">
-              <span className="bg-blue-500 px-3 py-1 rounded">
-                📁 {systemStats.total_files} files
-              </span>
-              <span className="bg-blue-500 px-3 py-1 rounded">
-                🔍 {systemStats.indexed_files} indexed
-              </span>
-              <span className="bg-blue-500 px-3 py-1 rounded">
-                👥 {systemStats.face_clusters} face clusters
-              </span>
-            </div>
-          )}
+          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+            {systemStats && (
+              <>
+                <span className="bg-blue-500 px-3 py-1 rounded flex items-center gap-1">
+                  {getOSIcon(systemStats.os)} {systemStats.os}
+                </span>
+                <span className="bg-blue-500 px-3 py-1 rounded">
+                  📁 {systemStats.total_files} files
+                </span>
+                <span className="bg-blue-500 px-3 py-1 rounded">
+                  🔍 {systemStats.indexed_files} indexed
+                </span>
+                <span className="bg-blue-500 px-3 py-1 rounded">
+                  👥 {systemStats.face_clusters} face clusters
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {/* Scan Control */}
+        {/* Folder Selection */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start mb-4">
             <div>
-              <h2 className="text-xl font-semibold mb-2">Scan & Index</h2>
-              <p className="text-gray-600 mb-4">
-                Scan directories: {systemStats?.scan_paths?.join(', ') || '/data'}
-              </p>
+              <h2 className="text-xl font-semibold mb-2">📂 Select Folders to Scan</h2>
+              <p className="text-gray-600">Choose which directories to scan for files and content.</p>
             </div>
             <button
-              onClick={handleScan}
-              disabled={loading}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+              onClick={() => setShowPathSelector(!showPathSelector)}
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
             >
-              {loading ? '⏳ Scanning...' : '🔄 Start Scan'}
+              {showPathSelector ? '📁 Hide Folders' : '📁 Manage Folders'}
+            </button>
+          </div>
+
+          {/* Selected Paths Display */}
+          <div className="mb-4">
+            <h3 className="font-medium mb-2">Selected Folders ({selectedPaths.length}):</h3>
+            {selectedPaths.length > 0 ? (
+              <div className="space-y-2">
+                {selectedPaths.map((path, index) => (
+                  <div key={index} className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-3">
+                    <span className="font-mono text-sm text-green-800">📁 {path}</span>
+                    <button
+                      onClick={() => removePath(path)}
+                      className="text-red-600 hover:text-red-800 ml-2"
+                      title="Remove folder"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-yellow-600 bg-yellow-50 border border-yellow-200 rounded p-3">
+                ⚠️ No folders selected. Please select folders to scan.
+              </p>
+            )}
+          </div>
+
+          {/* Folder Selection UI */}
+          {showPathSelector && (
+            <div className="border-t pt-4">
+              {/* Default/Suggested Paths */}
+              {defaultPaths.default_paths && (
+                <div className="mb-6">
+                  <h3 className="font-medium mb-3">💡 Suggested Folders:</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {defaultPaths.default_paths.map((pathInfo, index) => (
+                      <div key={index} className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                        selectedPaths.includes(pathInfo.path) 
+                          ? 'border-green-500 bg-green-50' 
+                          : pathInfo.exists && pathInfo.readable
+                            ? 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'
+                            : 'border-red-300 bg-red-50'
+                      }`}>
+                        <div 
+                          onClick={() => pathInfo.exists && pathInfo.readable && togglePath(pathInfo.path)}
+                          className="flex items-center justify-between"
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-4 h-4 rounded ${
+                                selectedPaths.includes(pathInfo.path) ? 'bg-green-500' : 'bg-gray-300'
+                              }`}></span>
+                              <span className="font-mono text-sm">{pathInfo.path}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {pathInfo.exists 
+                                ? pathInfo.readable 
+                                  ? `~${formatFileSize(pathInfo.size_estimate)}`
+                                  : '❌ Not readable'
+                                : '❌ Does not exist'
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Common Folders */}
+              {defaultPaths.common_folders && defaultPaths.common_folders.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-medium mb-3">🎯 Common Folders:</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {defaultPaths.common_folders.map((path, index) => (
+                      <button
+                        key={index}
+                        onClick={() => togglePath(path)}
+                        className={`px-3 py-1 rounded text-sm transition-colors ${
+                          selectedPaths.includes(path)
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {selectedPaths.includes(path) ? '✓ ' : '+ '}{path.split('/').pop() || path.split('\\').pop()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Path Input */}
+              <div>
+                <h3 className="font-medium mb-3">✏️ Add Custom Folder:</h3>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customPath}
+                    onChange={(e) => setCustomPath(e.target.value)}
+                    placeholder={defaultPaths.os === 'Windows' ? 'C:\\Users\\YourName\\CustomFolder' : '/home/user/customfolder'}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                  />
+                  <button
+                    onClick={addCustomPath}
+                    disabled={!customPath.trim()}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {defaultPaths.os === 'Windows' 
+                    ? 'Example: C:\\Users\\YourName\\Documents'
+                    : 'Example: /home/user/documents'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Scan Button */}
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={handleScan}
+              disabled={loading || selectedPaths.length === 0}
+              className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors font-medium text-lg"
+            >
+              {loading ? '⏳ Scanning...' : '🚀 Start Scan'}
             </button>
           </div>
           
@@ -163,6 +354,7 @@ function App() {
                   <p>📊 Total files: {scanStatus.total_files}</p>
                   <p>✅ Indexed: {scanStatus.indexed_files}</p>
                   <p>🎯 Vector indexed: {scanStatus.vector_indexed}</p>
+                  <p>📂 Scanned paths: {scanStatus.scan_paths?.join(', ')}</p>
                   {scanStatus.file_types && (
                     <div className="mt-2">
                       <strong>File types:</strong>
@@ -348,7 +540,7 @@ function App() {
                           </div>
                         )}
                         <p className="text-xs text-gray-600 mt-1 truncate" title={image.path}>
-                          {image.path ? image.path.split('/').pop() : 'Unknown'}
+                          {image.path ? image.path.split(/[/\\]/).pop() : 'Unknown'}
                         </p>
                       </div>
                     ))}
@@ -373,7 +565,7 @@ function App() {
             <p>Smart Folder Organizer - Powered by AI</p>
             {systemStats && (
               <p className="text-sm text-gray-400">
-                System: {systemStats.status} | Files: {systemStats.total_files}
+                System: {systemStats.status} | Files: {systemStats.total_files} | OS: {systemStats.os}
               </p>
             )}
           </div>
